@@ -1,0 +1,276 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>🦐 Opae Ula Tank Monitor</title>
+  <style>
+    :root {
+      --bg: #0f172a;
+      --card-bg: #1e293b;
+      --accent: #38bdf8;
+      --accent-hover: #0284c7;
+      --text: #f8fafc;
+      --subtext: #94a3b8;
+      --border: #334155;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background-color: var(--bg);
+      color: var(--text);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 20px;
+      min-height: 100vh;
+    }
+
+    header {
+      text-align: center;
+      margin-bottom: 24px;
+    }
+
+    h1 { font-size: 1.8rem; color: var(--accent); margin-bottom: 6px; }
+    p.subtitle { color: var(--subtext); font-size: 0.95rem; }
+
+    .container {
+      width: 100%;
+      max-width: 850px;
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+    }
+
+    .card {
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 20px;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+    }
+
+    .card-title {
+      font-size: 1.2rem;
+      font-weight: 600;
+      margin-bottom: 12px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .status-badge {
+      font-size: 0.8rem;
+      padding: 4px 10px;
+      border-radius: 20px;
+      background: #065f46;
+      color: #34d399;
+      font-weight: 500;
+    }
+
+    .feed-wrapper {
+      position: relative;
+      width: 100%;
+      aspect-ratio: 4 / 3;
+      background: #020617;
+      border-radius: 8px;
+      overflow: hidden;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+    }
+
+    .feed-wrapper img {
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+    }
+
+    .controls {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-top: 12px;
+      flex-wrap: wrap;
+      gap: 10px;
+    }
+
+    .btn {
+      background: var(--accent);
+      color: #000;
+      font-weight: 600;
+      border: none;
+      padding: 8px 16px;
+      border-radius: 6px;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+
+    .btn:hover { background: var(--accent-hover); color: #fff; }
+
+    .time-info {
+      font-size: 0.85rem;
+      color: var(--subtext);
+    }
+
+    /* Time-lapse scrubber */
+    .scrubber-controls {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      margin-top: 12px;
+    }
+
+    input[type=range] {
+      width: 100%;
+      accent-color: var(--accent);
+      cursor: pointer;
+    }
+
+    .slider-labels {
+      display: flex;
+      justify-content: space-between;
+      font-size: 0.85rem;
+      color: var(--subtext);
+    }
+  </style>
+</head>
+<body>
+
+  <header>
+    <h1>🦐 Opae Ula Tank Monitor</h1>
+    <p class="subtitle">Live Camera & Ecosystem Time-Lapse</p>
+  </header>
+
+  <div class="container">
+    <!-- LIVE FEED CARD -->
+    <div class="card">
+      <div class="card-title">
+        <span>Live Tank Stream</span>
+        <span class="status-badge" id="statusBadge">LIVE</span>
+      </div>
+
+      <div class="feed-wrapper">
+        <img id="liveFeed" src="" alt="Connecting to Opae Ula Tank..." />
+      </div>
+
+      <div class="controls">
+        <button class="btn" id="toggleBtn" onclick="toggleAutoRefresh()">Pause Stream</button>
+        <div class="time-info">Last Updated: <span id="lastUpdated">Never</span></div>
+      </div>
+    </div>
+
+    <!-- DAILY TIME-LAPSE CARD -->
+    <div class="card">
+      <div class="card-title">
+        <span>Daily Ecosystem Time-Lapse</span>
+      </div>
+
+      <div class="feed-wrapper">
+        <img id="timelapseFeed" src="" alt="Select a date below" />
+      </div>
+
+      <div class="scrubber-controls">
+        <input type="range" id="dateSlider" min="0" max="0" value="0" oninput="updateTimelapseImage()" />
+        <div class="slider-labels">
+          <span id="dateLabel">No photos recorded yet</span>
+          <span id="frameCounter">0 / 0</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // -------------------------------------------------------------
+    // CONFIGURATION: Replace with your public R2 bucket URL
+    // -------------------------------------------------------------
+    const PUBLIC_R2_URL = "https://pub-18f4ac26f58e466485206d778b1220b8.r2.dev";
+
+    // Live Feed Variables
+    let autoRefreshInterval = null;
+    let isLiveActive = true;
+    const REFRESH_RATE_MS = 3000; // Refreshes image every 3 seconds
+
+    const liveImg = document.getElementById("liveFeed");
+    const lastUpdatedText = document.getElementById("lastUpdated");
+    const toggleBtn = document.getElementById("toggleBtn");
+    const statusBadge = document.getElementById("statusBadge");
+
+    function fetchLatestFrame() {
+      if (!PUBLIC_R2_URL || PUBLIC_R2_URL.includes("pub-xxxxxx")) {
+        lastUpdatedText.innerText = "Please update PUBLIC_R2_URL in code!";
+        return;
+      }
+      
+      // Cache-busting query parameter 't' forces browser to load fresh image
+      const timestamp = new Date().getTime();
+      liveImg.src = `${PUBLIC_R2_URL}/latest.jpg?t=${timestamp}`;
+      
+      const now = new Date();
+      lastUpdatedText.innerText = now.toLocaleTimeString();
+    }
+
+    function toggleAutoRefresh() {
+      isLiveActive = !isLiveActive;
+      if (isLiveActive) {
+        fetchLatestFrame();
+        autoRefreshInterval = setInterval(fetchLatestFrame, REFRESH_RATE_MS);
+        toggleBtn.innerText = "Pause Stream";
+        statusBadge.innerText = "LIVE";
+        statusBadge.style.background = "#065f46";
+        statusBadge.style.color = "#34d399";
+      } else {
+        clearInterval(autoRefreshInterval);
+        toggleBtn.innerText = "Resume Stream";
+        statusBadge.innerText = "PAUSED";
+        statusBadge.style.background = "#854d0e";
+        statusBadge.style.color = "#fef08a";
+      }
+    }
+
+    // Start Live Stream on Page Load
+    fetchLatestFrame();
+    autoRefreshInterval = setInterval(fetchLatestFrame, REFRESH_RATE_MS);
+
+    // -------------------------------------------------------------
+    // TIME-LAPSE SCRUBBER LOGIC (Placeholder until daily cron active)
+    // -------------------------------------------------------------
+    // You will update this array or fetch it dynamically from your worker later!
+    let timelapseImages = [
+      // Example paths inside R2:
+      // `${PUBLIC_R2_URL}/timelapse/2026-08-12_0900.jpg`,
+      // `${PUBLIC_R2_URL}/timelapse/2026-08-13_0900.jpg`,
+      // `${PUBLIC_R2_URL}/timelapse/2026-08-14_0900.jpg`
+    ];
+
+    const slider = document.getElementById("dateSlider");
+    const timelapseImg = document.getElementById("timelapseFeed");
+    const dateLabel = document.getElementById("dateLabel");
+    const frameCounter = document.getElementById("frameCounter");
+
+    function initTimelapse() {
+      if (timelapseImages.length === 0) {
+        timelapseImg.alt = "Time-lapse photos will appear here as snapshots are recorded.";
+        return;
+      }
+      slider.max = timelapseImages.length - 1;
+      slider.value = timelapseImages.length - 1;
+      updateTimelapseImage();
+    }
+
+    function updateTimelapseImage() {
+      if (timelapseImages.length === 0) return;
+      const url = timelapseImages[slider.value];
+      timelapseImg.src = url;
+      
+      // Extract date string from filename
+      const filename = url.split('/').pop();
+      dateLabel.innerText = "Date: " + filename.replace('.jpg', '');
+      frameCounter.innerText = `${parseInt(slider.value) + 1} / ${timelapseImages.length}`;
+    }
+
+    initTimelapse();
+  </script>
+</body>
+</html>
