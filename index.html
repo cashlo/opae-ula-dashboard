@@ -186,11 +186,12 @@
     // CONFIGURATION: Replace with your public R2 bucket URL
     // -------------------------------------------------------------
     const PUBLIC_R2_URL = "https://pub-18f4ac26f58e466485206d778b1220b8.r2.dev";
+    const API_BASE_URL = "https://opae-ula-api.cash-raistlin.workers.dev";
 
     // Live Feed Variables
     let autoRefreshInterval = null;
     let isLiveActive = true;
-    const REFRESH_RATE_MS = 3000; // Refreshes image every 3 seconds
+    const REFRESH_RATE_MS = 1000; // Refreshes image every 3 seconds
 
     const liveImg = document.getElementById("liveFeed");
     const lastUpdatedText = document.getElementById("lastUpdated");
@@ -259,6 +260,22 @@
       updateTimelapseImage();
     }
 
+    let timelapseImages = [];
+
+    async function loadTimelapseList() {
+      try {
+        const res = await fetch(`${API_BASE_URL}/list-timelapse`);
+        const keys = await res.json(); // e.g. ["timelapse/2026-08-12_0900.jpg", ...]
+        timelapseImages = keys.map(key => `${PUBLIC_R2_URL}/${key}`);
+      } catch (err) {
+        console.error("Failed to load timelapse list:", err);
+        timelapseImages = [];
+      }
+      initTimelapse();
+    }
+
+
+
     function updateTimelapseImage() {
       if (timelapseImages.length === 0) return;
       const url = timelapseImages[slider.value];
@@ -270,7 +287,7 @@
       frameCounter.innerText = `${parseInt(slider.value) + 1} / ${timelapseImages.length}`;
     }
 
-    initTimelapse();
+    loadTimelapseList();
   </script>
 </body>
 </html>
