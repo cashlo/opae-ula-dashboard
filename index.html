@@ -260,8 +260,6 @@
       updateTimelapseImage();
     }
 
-    let timelapseImages = [];
-
     async function loadTimelapseList() {
       try {
         const res = await fetch(`${API_BASE_URL}/list-timelapse`);
